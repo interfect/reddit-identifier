@@ -7,12 +7,15 @@ Program scaffold based on
 <http://users.soe.ucsc.edu/~karplus/bme205/f12/Scaffold.html>
 """
 
-import praw, argparse, sys, io, pickle, itertools, collections, random
+import praw, argparse, sys, io, pickle, itertools, collections, random, re
 
 import nltk
-import nltk.classify.util
-from nltk.classify import NaiveBayesClassifier
-from nltk.classify import DecisionTreeClassifier
+
+import numpy
+from sklearn.feature_extraction import DictVectorizer
+from sklearn.naive_bayes import MultinomialNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
 
 def generate_parser():
     """
@@ -115,22 +118,6 @@ def split_user_index(user_index):
         test[user] = to_shuffle[len(to_shuffle)/2:]
         
     return (training, test)
-        
-def make_nltk_labeled_list(user_index, feature_function):
-    """
-    Given a user-indexed comment dictionary and a function from comments to
-    feature dicts, makes a list of (features, label) tuples such as an NLTK
-    classifier expects to be trained or tested on.
-    """
-    
-    example_list = []
-    for (user, comments) in user_index.iteritems():
-        # Run the feature function on each comment's text, and put that as an 
-        # example labeled with this user
-        example_list += [(feature_function(comment[1]), user) for comment in 
-            comments]
-            
-    return example_list
 
 def bag_of_words_features(comment):
     """
@@ -139,24 +126,143 @@ def bag_of_words_features(comment):
     """    
     return {word: True for word in nltk.word_tokenize(comment)}
     
-def content_free_features(comment):
+def raw_content_free_features(comment):
+    """
+    Just like content_free_features but not normalized.
+    """
+    
+    return content_free_features(comment, normalize=False)
+    
+def content_free_features(comment, normalize=True):
     """
     Makes a feature/value dictionary from a Unicode comment, with content-free
     features.
+    
+    Features to compute:
+        * Words and characters in post (2 features)
+        * Fraction of words of 1 to 20 characters (20 features)
+        * Fraction of words in:
+            * UPPERCASE
+            * lowercase
+            * Capitalized
+            * CamelCase
+            * aNyThInG ElSe
+        * Fraction of letters (ignoring case)
+        * Fraction of all other characters by type
+        
+    If normalize is false, all frequencies are raw counts instead.
+    
     """
-    # What feature dict are we making
-    feature_dict = {}
+    # What feature dict are we making? (a dict of floats)
+    features = collections.defaultdict(float)
     
-    # What caharacters does every comment need a frequency feature for?
-    legal_chars = (u"ABCDEFGHIJKLMNOPQRSTUVWZYZabcdefghijklmnopqrstuvwxyz"
-     "!@#$%^&*()_+{}|:\"<>?1234567890-=[]\\;',./~`\n ")
+    # Get all the words
+    words = nltk.word_tokenize(comment)
     
-    # Character frequency
-    for character in legal_chars:
-        feature_dict[u"char({})".format(character)] = (
-            float(comment.count(character)) / len(comment))
+    # Characters in post
+    features[u"characters"] = len(comment)
     
-    return feature_dict
+    # Words in post
+    features[u"words"] = len(words)
+    
+    # Word lengths from 1 to 20 characters
+    for word in words:
+        if len(word) == 0 or len(word) > 20:
+            continue
+            
+        features[u"word-length:" + str(len(word))] += 1
+        
+    if normalize:
+        # Normalize
+        for length in xrange(1, 21):
+            features[u"word-length:" + str(length)] /= float(len(words))
+        
+    # Word capitalization counts. This regex matches camelcase (or capitalized,
+    # but we check that separately): first letter is capital, then some
+    # lowercase, and then some capital letters each followed by some lowercase
+    # ones
+    camel_regex = re.compile(r"([A-Z][a-z]+)+")
+    for word in words:
+        if word.isupper():
+            features[u"case:upper"] += 1
+        elif word.islower():
+            features[u"case:lower"] += 1
+        elif word.istitle():
+            features[u"case:capitalized"] += 1
+        elif camel_regex.match(word):
+            features[u"case:camel"] += 1
+        else:
+            features[u"case:other"] += 1
+            
+    if normalize:
+        # Normalize
+        features[u"case:upper"] /= float(len(words))
+        features[u"case:lower"] /= float(len(words))
+        features[u"case:capitalized"] /= float(len(words))
+        features[u"case:camel"] /= float(len(words))
+        features[u"case:other"] /= float(len(words))
+        
+    
+    # Character frequencies
+    # Keep in a separate dict for easy norming
+    character_counts = collections.Counter()
+    for character in comment:
+        character_counts[u"char:" + character.lower()] += 1
+        
+    # Normalize and add in
+    for key in character_counts.iterkeys():
+        features[key] = character_counts[key] 
+        if normalize:
+            features[key] /= float(len(comment))
+    
+    return features
+
+def make_sklearn_dataset(user_index, model_function, vectorizer=None):
+    """
+    Given a dict of comment tuple lists by user name, and a function mapping
+    comment strings to dicts of features, produces a feature matrix X and a
+    label vector t suitable for use with sklearn classifiers. Converts user
+    names to numbers.
+    
+    if vectorizer is passed, it is used to map feature dicts to feature vectors.
+    You would get a vectorizer from calling this function on the training set,
+    and use it when calling this function on the test set, so that features that
+    we would only know to have by loking at the test set don't get used.
+    
+    Returns feature matrix, label vector, vectorizer
+    
+    """
+    
+    
+    
+    # Compose a flat list of feature dicts and a list of labels
+    feature_dicts = []
+    labels = []
+    
+    # Use the passed feature extraction function to get dicts from comments
+    for (user_number, (user_name, comments)) in enumerate(
+        user_index.iteritems()):
+        
+        for comment in comments:
+            # Store the extracted features for the comment
+            feature_dicts.append(model_function(comment[1]))
+            
+            # Store the label in the corresponding position in the labels list
+            labels.append(user_number)
+            
+    if vectorizer is None:
+        # This is the DictVectorizer that we will use to vectorize the feature dicts
+        # for each comment
+        vectorizer = DictVectorizer()
+        
+        # Train on this data
+        vectorizer.fit(feature_dicts)
+            
+    # Transform dicts into vectors
+    feature_matrix = vectorizer.transform(feature_dicts)
+    
+    return feature_matrix, labels, vectorizer
+            
     
 def main(args):
     """
@@ -183,54 +289,67 @@ def main(args):
         if len(comments) >= options.min_user_comments}
     print "{} users available for analysis".format(len(user_index.keys()))
     
+    print "Uniform guess correctness rate: {}".format(
+        1/float(len(user_index.keys())))
+    
+    sys.stdout.flush()
+    
     # Get the test and training sets
     training_index, test_index = split_user_index(user_index)
     
     # Feature models to try
     feature_models = {
-        "Bag-of-Words": bag_of_words_features,
-        "Content-Free": content_free_features
+        "Content-Free": content_free_features,
+        "Content-Free (Raw)": raw_content_free_features,
+        "Bag-of-Words": bag_of_words_features
     }
     
     # Classifiers to try
     classifiers = {
-        "Naive Bayes": NaiveBayesClassifier,
-        "Decision Tree": DecisionTreeClassifier
+        "Naive Bayes": MultinomialNB,
+        "Nearest Neighbor": KNeighborsClassifier,
+        "Support Vector Classifier": SVC
     }
     
-    # Which pairings do we use.
-    # Not all are valid
-    pipelines = [("Bag-of-Words", "Naive Bayes"), 
-        ("Content-Free", "Decision Tree")]
-    
-    for (model_name, classifier_name) in pipelines:
+    for model_name in feature_models.iterkeys():
         
         # Get the feature model function
         model_function = feature_models[model_name]
         
-        # Get the class of classifier to use
-        classifier_class = classifiers[classifier_name]
-        
         # Convert to labeled examples       
         print "Producing {} features...".format(model_name) 
-        training_set = make_nltk_labeled_list(training_index, model_function)
-        test_set = make_nltk_labeled_list(test_index, model_function)
+        sys.stdout.flush()
+        
+        # Get a vectorizer from making the training set feature vectors
+        training_features, training_labels, vectorizer = make_sklearn_dataset(
+            training_index, model_function)
+            
+        # Use it when making the test set feature vectors
+        test_features, test_labels, vectorizer = make_sklearn_dataset(
+            test_index, model_function, vectorizer=vectorizer)
+        
+        for classifier_name in classifiers.iterkeys():
 
-        # Train up a classifier
-        print "Training {} Classifier...".format(classifier_name)
-        classifier = classifier_class.train(training_set)
-        
-        # Calculate the accuracy on the test set
-        print "Computing accuracy..."
-        accuracy = nltk.classify.util.accuracy(classifier, test_set)
-        
-        # Report the accuracy and most informative features
-        print "{}/{} Accuracy: {}".format(classifier_name, model_name, accuracy)
-        try:
-            # If it supports it, dump the features
-            classifier.show_most_informative_features()
-        except:
-            pass
+            # Get the class of classifier to use
+            classifier_class = classifiers[classifier_name]
+
+            # Train up a classifier
+            print "Training {} Classifier...".format(classifier_name)
+            sys.stdout.flush()
+            
+            classifier = classifier_class()
+            classifier.fit(training_features, training_labels)
+            
+            # Calculate the accuracy on the test set
+            print "Computing accuracy..."
+            sys.stdout.flush()
+            
+            accuracy = classifier.score(test_features, test_labels)
+            
+            # Report the accuracy and most informative features
+            print "{}/{} Accuracy: {}".format(classifier_name, model_name, 
+                accuracy)
+            sys.stdout.flush()
             
     return 0
     
