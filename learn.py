@@ -256,6 +256,10 @@ def content_free_features(comment, normalize=True, parse=True):
     # Words in post
     features[u"words"] = len(words)
     
+    if len(words) == 0:
+        # None of the other features make sense, they can all be 0
+        return features
+    
     # Yule's K
     
     # PoS tag everything
