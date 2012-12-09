@@ -399,11 +399,11 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
         for comment in comments:
             # Strip out special characters
             # Kind of defeats the point of unicode everywhere else...
-            comment = unicode(comment.encode("ascii", "ignore"))
+            comment_string = unicode(comment[1].encode("ascii", "ignore"))
         
             # Queue extracting comment features
             # Uses lots of functions and modules
-            pp_jobs.append(job_server.submit(model_function, (comment[1],),
+            pp_jobs.append(job_server.submit(model_function, (comment_string,),
             (content_free_features, stanford_parse, write_temp_text), 
             ("re", "nltk", "nltk.tree", "itertools", "collections", "os",
             "subprocess", "sys", "io", "tempfile", "function_words")))
