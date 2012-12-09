@@ -230,6 +230,7 @@ def content_free_features(comment, normalize=True, parse=True):
         * Fraction of all other characters by type
         * Fraction of words that are each function word
         * Parse tree edges by from, to as a fraction of total
+            * This is replaced by PoS counts if you don't do the parse.
         
     If normalize is false, all frequencies are raw counts instead.
     
@@ -247,6 +248,27 @@ def content_free_features(comment, normalize=True, parse=True):
     
     # Words in post
     features[u"words"] = len(words)
+    
+    # Yule's K
+    
+    # PoS tag everything
+    pos_tagged = nltk.pos_tag(words)
+    
+    # Get all the nouns
+    noun_counts = collections.Counter()
+    for (word, pos) in pos_tagged:
+        if pos[0] == "N":
+            # Assume any tag starting with N is a noun (NN, NNP, etc.)
+            noun_counts[word.lower()] += 1
+    
+    yules_k = 0
+    total_nouns = sum(noun_counts.itervalues())
+    # OR together all the events (we pick this noun twice)
+    for noun, count in noun_counts.iteritems():
+        yules_k += (count/float(total_nouns)) ** 2
+        
+    # Store Yule's K feature
+    features["yules-k"] = yules_k
     
     # Words that appear 1 to 10 times each: frequencies thereof
     # First, count all the words
@@ -330,47 +352,39 @@ def content_free_features(comment, normalize=True, parse=True):
         if normalize:
             features[key] /= float(len(words))
      
-    # Anything after here nees parsing
-    if parse == False:
-        return features
-            
-    # Parsing edge features
-    # Parse all the sentences
-    trees = list(stanford_parse(comment))
-    
-    # This holds counts all the (parent, child) tree edges
-    edges = collections.Counter()
-    
-    for tree in trees:
-        for production in tree.productions():
-            for child in production.rhs():
-                if isinstance(child, nltk.grammar.Nonterminal):
-                    # Don't let words in
-                    edges[u"parse:" + str((production.lhs(), child))] += 1
-                    
-    # Copy over, normalizing if needed
-    for key, count in edges.iteritems():
-        features[key] = count
-        if normalize:
-            features[key] /= float(len(edges))
-    
-    # Now that we have the parsings, we can calculate Yule's K
-    # Get all the nouns
-    noun_counts = collections.Counter()
-    for tree in trees:
-        for (word, pos) in tree.pos():
-            if pos[0] == "N":
-                # Assume any tag starting with N is a noun (NN, NNP, etc.)
-                noun_counts[word.lower()] += 1
-    
-    yules_k = 0
-    total_nouns = sum(noun_counts.itervalues())
-    # OR together all the events (we pick this noun twice)
-    for noun, count in noun_counts.iteritems():
-        yules_k += (count/float(total_nouns)) ** 2
+    if parse:
+        # Include parent-child PoS edge frequencies
+        # Parsing edge features
+        # Parse all the sentences
+        trees = list(stanford_parse(comment))
         
-    # Store Yule's K feature
-    features["yules-k"] = yules_k
+        # This holds counts all the (parent, child) tree edges
+        edges = collections.Counter()
+        
+        for tree in trees:
+            for production in tree.productions():
+                for child in production.rhs():
+                    if isinstance(child, nltk.grammar.Nonterminal):
+                        # Don't let words in
+                        edges[u"parse:" + str((production.lhs(), child))] += 1
+                        
+        # Copy over, normalizing if needed
+        for key, count in edges.iteritems():
+            features[key] = count
+            if normalize:
+                features[key] /= float(len(edges))
+    else:
+        # Just use part-of-speech frequencies
+        pos_counts = collections.Counter()
+        
+        for (word, pos) in pos_tagged:
+            pos_counts[u"POS:" + pos] += 1
+        
+        # Copy over, normalizing if needed
+        for key, count in pos_counts.iteritems():
+            features[key] = count
+            if normalize:
+                features[key] /= float(len(pos_tagged))
     
     return features
 
@@ -396,8 +410,8 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
     feature_dicts = []
     labels = []
     
-    # This holds PP jobs being used to make feature dicts
-    pp_jobs = []
+    # How many comments have we processed?
+    comments_done = 0
     
     # Use the passed feature extraction function to get dicts from comments
     for (user_number, (user_name, comments)) in enumerate(
@@ -413,6 +427,12 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
         
             # Store the label in the corresponding position in the labels list
             labels.append(user_number)
+            
+            comments_done += 1
+            if comments_done % 10 == 0:
+                sys.stdout.write(".")
+                sys.stdout.flush()
+    sys.stdout.write("\n")
             
     if vectorizer is None:
         # This is the DictVectorizer that we will use to vectorize the feature dicts
