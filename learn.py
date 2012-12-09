@@ -8,7 +8,9 @@ Program scaffold based on
 """
 
 import argparse, sys, io, pickle, itertools, collections, random, re, tempfile
-import os, subprocess, random, pty
+import os, subprocess, random
+
+import pp
 
 import nltk
 import nltk.grammar
@@ -21,6 +23,10 @@ from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
 
 import function_words
+
+# We also have a global PP job server
+job_server = pp.Server(secret="".join(
+    [random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for i in xrange(20)]))
 
 def generate_parser():
     """
@@ -68,123 +74,66 @@ def parse_args(args):
     # Invoke the parser
     return parser.parse_args(args)
 
-
-
-class StanfordServer(object):
+def write_temp_text(text):
     """
-    A class that uses FIFOs to allow one instance of the Stanford Parser to
-    parse a large number of sentances asynchronously, without risking a deadlock
-    due to full pipe bufers.
+    Write the given string to a temporary file.
+    Returns the filename of the temporary file.
+    """
+    
+    (handle, filename) = tempfile.mkstemp(suffix=".txt")
+    
+    # Convert handle (an int) to a proper stream
+    stream = io.open(handle, "w") 
+    stream.write(text)
+    stream.close()
+    
+    return filename
+
+def stanford_parse(comment):
+    """
+    Given a string of multiple sentences, yiled NLTK trees for their
+    parsings. Creates these trees using the Stanford parser in ./stanford.
+    
+    See http://www.cs.ucf.edu/courses/cap5636/fall2011/nltk.pdf
     
     """
     
-    def __init__(self):
-        """
-        Set up the FIFOs and start the server.
-        
-        Temporary FIFO code based on:
-        http://stackoverflow.com/questions/1430446/
-        """
-        
-        # Get a temp directory
-        self.fifo_directory = tempfile.mkdtemp()
-        # This holds the filename of the fifo TO the parser
-        self.sentence_fifo_name = os.path.join(self.fifo_directory, "sentences")
-        # This holds the filename of the fifo FROM the parser
-        self.parse_fifo_name = os.path.join(self.fifo_directory, "parses")
-        
-        # Make the FIFO files
-        os.mkfifo(self.sentence_fifo_name)
-        os.mkfifo(self.parse_fifo_name)       
-               
-        # Start up the Stanford process which will open the other ends
-        command_line = ["java", "-mx1G", "-cp", "\"stanford/*:\"", 
+    # Write the comment and get the filename
+    comment_file = write_temp_text(comment)
+    
+    # Call the parser
+    
+    command_line = ["java", "-mx1G", "-cp", "\"stanford/*:\"", 
         "edu.stanford.nlp.parser.lexparser.LexicalizedParser", "-outputFormat", 
-        "penn", "edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz",
-        self.sentence_fifo_name, ">", self.parse_fifo_name]
+        "penn", "edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz", 
+        comment_file]
+    stanford = subprocess.Popen(" ".join(command_line), stdout=subprocess.PIPE, 
+        shell=True) 
+    
+    # Read each tree and yield it
+    # This holds all the lines part of this parsing
+    current_parsing = []
+    
+    for line in stanford.stdout:
+        if line.rstrip() == "":
+            # A blank separator line
+            # The s-expression is done, so parse it (ugh) and yield it
+            yield nltk.tree.Tree.parse(" ".join(current_parsing))
+            
+            # New parsing
+            current_parsing = []
+        else:
+            # This line is more of this parsing
+            current_parsing.append(line.rstrip())
+    # The final parsing has a blank line after it
+    
+    # That's all the data (hopefully)
+    if stanford.wait() != 0:
+        raise Exception("Stanford broke!")
         
-        print " ".join(command_line)
-        
-        # This holds the subprocess
-        self.stanford = subprocess.Popen(" ".join(command_line), shell=True) 
-        
-        # Open our pipe ends
-        # These block on the other end, so we have to do it in the same order as
-        # our child process.
-        self.parse_stream = open(self.parse_fifo_name, "rb")
-        self.sentence_stream = open(self.sentence_fifo_name, "wb")
-        
-        # HACK!
-        # Write a junk sentence to the parser.
-        # When the next sentence is written, it will produce the parse for this 
-        # one. Then we can write another junk sentence to get the parse for that
-        # one.
-        
-        self.sentence_stream.write("Junk.\n")
-        
-        # Now ready to pase some sentences!
-        
-    def parse(self, sentence):
-        """
-        Send a single sentence to the parser, and wait for a response. When the
-        parser responds, return the nltk Tree for the parsing.
-
-        """
-        
-        print "Sending {}".format(sentence)
-        sys.stdout.flush()
-        
-        # Send the sentence
-        self.sentence_stream.write(str(sentence))
-        self.sentence_stream.write("\n")
-        self.sentence_stream.flush()
-        
-        # Send a junk sentence.
-        self.sentence_stream.write("Junk.\n")
-        self.sentence_stream.flush()
-        
-        # Read a junk parse.
-        while 1:
-            line = unicode(self.parse_stream.readline())
-            line = line.rstrip()
-            if line == "":
-                break
-        
-        # This holds the current parse
-        parse_lines = []
-        
-        # Read the parse
-        while 1:
-            line = unicode(self.parse_stream.readline())
-            line = line.rstrip()
-            if line == "":
-                # It's an end-of-tree line
-                return nltk.tree.Tree.parse(" ".join(parse_lines))
-            else:
-                # Put it in the list and keep going
-                parse_lines.append(line)
-           
-    def __del__(self):
-        """
-        Destructor: clean up our temporary FIFOs.
-        """
-        
-        # Close the fifos
-        self.parse_stream.close()
-        self.sentence_stream.close()
-        
-        # Wait for parser to die
-        self.stanford.wait()
-        
-        # Remove the temporary fifos
-        os.remove(self.parse_fifo_name)
-        os.remove(self.sentence_fifo_name)
-        
-        # Remove the directory
-        os.rmdir(self.fifo_directory)
-
-# We have a global Stanford parser server
-stanford_server = StanfordServer()
+    os.remove(comment_file)
+    
+    
     
 def read_comments(stream):
     """
@@ -379,19 +328,8 @@ def content_free_features(comment, normalize=True):
             features[key] /= float(len(words))
             
     # Parsing edge features
-    
-    # Get all the sentences
-    sentences = nltk.sent_tokenize(comment)
-    
-    # Drop sentences that aren't real
-    has_alphanumeric = re.compile(r"\w")
-    sentences = filter(lambda s: has_alphanumeric.match(s), sentences)
-    
-    # Make sure at least one period exists
-    sentences = [s.replace(".", "") + "." for s in sentences]
-    
     # Parse all the sentences
-    trees = map(stanford_server.parse, sentences)
+    trees = list(stanford_parse(comment))
     
     # This holds counts all the (parent, child) tree edges
     edges = collections.Counter()
@@ -451,6 +389,9 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
     feature_dicts = []
     labels = []
     
+    # This holds PP jobs being used to make feature dicts
+    pp_jobs = []
+    
     # Use the passed feature extraction function to get dicts from comments
     for (user_number, (user_name, comments)) in enumerate(
         user_index.iteritems()):
@@ -460,11 +401,21 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
             # Kind of defeats the point of unicode everywhere else...
             comment_string = unicode(comment[1].encode("ascii", "ignore"))
         
-            # Get the features
-            feature_dicts.append(model_function(comment_string))
+            # Queue extracting comment features
+            # Uses lots of functions and modules
+            pp_jobs.append(job_server.submit(model_function, (comment_string,),
+            (content_free_features, stanford_parse, write_temp_text), 
+            ("re", "nltk", "nltk.tree", "itertools", "collections", "os",
+            "subprocess", "sys", "io", "tempfile", "function_words")))
             
             # Store the label in the corresponding position in the labels list
             labels.append(user_number)
+            
+    # Wait for all the jobs to be done and put the resulting dicts in a list
+    for i, job in enumerate(pp_jobs):
+        feature_dicts.append(job())
+        print "Job {} done".format(i)
+        sys.stdout.flush()
             
     if vectorizer is None:
         # This is the DictVectorizer that we will use to vectorize the feature dicts
