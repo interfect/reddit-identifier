@@ -8,59 +8,25 @@ Program scaffold based on
 """
 
 import argparse, sys, io, pickle, itertools, collections, random, re, tempfile
-import os, subprocess
+import os, subprocess, random
+
+import pp
 
 import nltk
 import nltk.grammar
-from nltk.tree import Tree
+import nltk.tree
 
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.svm import SVC
+from sklearn.svm import LinearSVC
+from sklearn.multiclass import OneVsRestClassifier
 
-# We keep our list of function words in a global
-# Function words from Appendix 3 of Narayanan et al. 2012
-function_words=set([
-"aboard", "about", "above", "absent", "according", "accordingly",  "across",
-"after", "against", "ahead", "albeit", "all", "along", "alongside", "although",
-"am", "amid", "amidst", "among", "amongst", "amount", "an", "and", "another",
-"anti",  "any", "anybody", "anyone", "anything", "are", "around", "as",
-"aside", "astraddle",  "astride", "at", "away", "bar", "barring", "be",
-"because", "been", "before", "behind",  "being", "below", "beneath", "beside",
-"besides", "better", "between", "beyond", "bit",  "both", "but", "by", "can",
-"certain", "circa", "close", "concerning", "consequently",  "considering",
-"could", "couple", "dare", "deal", "despite", "down", "due", "during",  "each",
-"eight", "eighth", "either", "enough", "every", "everybody", "everyone",
-"everything", "except", "excepting", "excluding", "failing", "few", "fewer",
-" fifth",  " first", " five", "following", "for", "four", "fourth", "from",
-"front", "given", "good",  "great", "had", "half", "have", "he", "heaps",
-"hence", "her", "hers", "herself", "him",  "himself", "his", "however", "i",
-"if", "in", "including", "inside", "instead", "into", "is", "it",  "its",
-"itself", "keeping", "lack", "less", "like", "little", "loads", "lots",
-"majority", "many",  "masses", "may", "me", "might", "mine", "minority",
-"minus", "more", "most", "much",  "must", "my", "myself", "near", "need",
-"neither", "nevertheless", "next", "nine",  "ninth", "no", "nobody", "none",
-"nor", "nothing", "notwithstanding", "number",  "numbers", "of", "off", "on",
-"once", "one", "onto", "opposite", "or", "other", "ought",  "our", "ours",
-"ourselves", "out", "outside", "over", "part", "past", "pending", "per",
-"pertaining", "place", "plenty", "plethora", "plus", "quantities", "quantity",
-"quarter",  "regarding", "remainder", "respecting", "rest", "round", "save",
-"saving", "second",  "seven", "seventh", "several", "shall", "she", "should",
-"similar", "since", "six", "sixth",  "so", "some", "somebody", "someone",
-"something", "spite", "such", "ten", "tenth",  "than", "thanks", "that", "the",
-"their", "theirs", "them", "themselves", "then", "thence",  "therefore",
-"these", "they", "third", "this", "those", "though", "three", "through",
-"throughout", "thru", "thus", "till", "time", "to", "tons", "top", "toward",
-"towards",  "two", "under", "underneath", "unless", "unlike", "until", "unto",
-"up", "upon", "us",  "used", "various", "versus", "via", "view", "wanting",
-"was", "we", "were", "what",  "whatever", "when", "whenever", "where",
-"whereas", "wherever", "whether",  "which", "whichever", "while", "whilst",
-"who", "whoever", "whole", "whom",  "whomever", "whose", "will", "with",
-"within", "without", "would", "yet", "you",  "your", "yours", "yourself",
-"yourselves"
-])
+import function_words
 
+# We also have a global PP job server
+job_server = pp.Server(secret="".join(
+    [random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for i in xrange(20)]))
 
 def generate_parser():
     """
@@ -79,11 +45,13 @@ def generate_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     
     # Now add all the options to it.
-    parser.add_argument("--in", dest="in file", type=argparse. fileType('r'), 
+    parser.add_argument("--in", dest="inFile", type=argparse.FileType('r'), 
         default=sys.stdin, 
-        help="serialized comment input  file (default: stdin)")
+        help="serialized comment input file (default: stdin)")
     parser.add_argument("--min_user_comments", type=int, default=100,
         help="miniumum comments a user has to have to be used") 
+    parser.add_argument("--top_predictions", type=int, default=5,
+        help="number of best predictions to score")
     
         
     return parser
@@ -135,7 +103,7 @@ def stanford_parse(comment):
     
     # Call the parser
     
-    command_line = ["java", "-mx150m", "-cp", "\"stanford/*:\"", 
+    command_line = ["java", "-mx1G", "-cp", "\"stanford/*:\"", 
         "edu.stanford.nlp.parser.lexparser.LexicalizedParser", "-outputFormat", 
         "penn", "edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz", 
         comment_file]
@@ -150,7 +118,7 @@ def stanford_parse(comment):
         if line.rstrip() == "":
             # A blank separator line
             # The s-expression is done, so parse it (ugh) and yield it
-            yield Tree.parse(" ".join(current_parsing))
+            yield nltk.tree.Tree.parse(" ".join(current_parsing))
             
             # New parsing
             current_parsing = []
@@ -351,7 +319,7 @@ def content_free_features(comment, normalize=True):
     function_counts = collections.Counter()
     for word in words:
         word = word.lower()
-        if word in function_words:
+        if word in function_words.function_words:
             function_counts["function:" + word] += 1
     
     for key, count in function_counts.iteritems():
@@ -421,16 +389,29 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
     feature_dicts = []
     labels = []
     
+    # This holds PP jobs being used to make feature dicts
+    pp_jobs = []
+    
     # Use the passed feature extraction function to get dicts from comments
     for (user_number, (user_name, comments)) in enumerate(
         user_index.iteritems()):
         
         for comment in comments:
-            # Store the extracted features for the comment
-            feature_dicts.append(model_function(comment[1]))
+            # Queue extracting comment features
+            # Uses lots of functions and modules
+            pp_jobs.append(job_server.submit(model_function, (comment[1],),
+            (content_free_features, stanford_parse, write_temp_text), 
+            ("re", "nltk", "nltk.tree", "itertools", "collections", "os",
+            "subprocess", "sys", "io", "tempfile", "function_words")))
             
             # Store the label in the corresponding position in the labels list
             labels.append(user_number)
+            
+    # Wait for all the jobs to be done and put the resulting dicts in a list
+    for i, job in enumerate(pp_jobs):
+        feature_dicts.append(job())
+        print "Job {} done".format(i)
+        sys.stdout.flush()
             
     if vectorizer is None:
         # This is the DictVectorizer that we will use to vectorize the feature dicts
@@ -438,7 +419,7 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
         vectorizer = DictVectorizer()
         
         # Train on this data
-        vectorizer. fit(feature_dicts)
+        vectorizer.fit(feature_dicts)
             
     # Transform dicts into vectors
     feature_matrix = vectorizer.transform(feature_dicts)
@@ -489,8 +470,9 @@ def main(args):
     # Classifiers to try
     classifiers = {
         "Naive Bayes": MultinomialNB,
-        "Nearest Neighbor": KNeighborsClassifier,
-        "Support Vector Classifier": SVC
+        "Nearest Neighbor": lambda: KNeighborsClassifier(n_neighbors=1),
+        # non-linear SVC is one vs one by default, which is O(N^2) and too slow
+        "Linear SVM": LinearSVC
     }
     
     for model_name in feature_models.iterkeys():
@@ -520,7 +502,8 @@ def main(args):
             sys.stdout.flush()
             
             classifier = classifier_class()
-            classifier. fit(training_features, training_labels)
+            # Set probability=True to compute probability info
+            classifier.fit(training_features, training_labels)
             
             # Calculate the accuracy on the test set
             print "Computing accuracy..."
@@ -531,6 +514,40 @@ def main(args):
             # Report the accuracy and most informative features
             print "{}/{} Accuracy: {}".format(classifier_name, model_name, 
                 accuracy)
+            
+            if hasattr(classifier, "predict_proba"):
+                # Our classifier supports this
+                # Get how often correct answer is in top 5
+                # This is a test points by classes matrix of log probs
+                predictions = classifier.predict_proba(test_features)
+                
+                # Count correct-within-top-n predictions
+                num_correct = 0
+                for prediction, label in itertools.izip(predictions, 
+                    test_labels):
+                    
+                    # Now we have a vector of probs
+                    # Make a list of (prob, class) tuples
+                    prob_class_tuples = []
+                    for classification, prob in enumerate(prediction):
+                        prob_class_tuples.append((prob, classification))
+                        
+                    prob_class_tuples.sort(reverse=True)
+                    
+                    top_classes = [item[1] 
+                        for item in prob_class_tuples[:options.top_predictions]]
+                    
+                    if label in top_classes:
+                        num_correct += 1
+                        
+                # Print the more lenient score    
+                print "{}/{} in top {}: {}".format(classifier_name, model_name, 
+                    options.top_predictions, 
+                    num_correct / float(len(predictions)))    
+            else:
+                print "Predicting probabilities not supported by {}".format(
+                    classifier_name)   
+                    
             sys.stdout.flush()
             
     return 0
