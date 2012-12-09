@@ -203,17 +203,17 @@ def bag_of_words_features(comment):
     
 def raw_content_free_features(comment):
     """
-    Just like content_free_features but not normalized.
-    """
-    
-    return content_free_features(comment, normalize=False)
-    
-def noparse_content_free_features(comment):
-    """
-    Content-free features with no parsing and no normalization.
+    Just like content_free_features with no parsing or normalization.
     """
     
     return content_free_features(comment, normalize=False, parse=False)
+    
+def noparse_content_free_features(comment):
+    """
+    Content-free features with no parsing and with normalization.
+    """
+    
+    return content_free_features(comment, normalize=True, parse=False)
     
 def content_free_features(comment, normalize=True, parse=True):
     """
@@ -544,7 +544,8 @@ def main(args):
     
     # Feature models to try
     feature_models = {
-        "Content-Free (no parsing)": noparse_content_free_features,
+        "Content-Free (counts)": noparse_content_free_features,
+        "Content-Free (frequencies)": raw_content_free_features,
         "Bag-of-Words": bag_of_words_features
     }
     
