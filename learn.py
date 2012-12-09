@@ -246,6 +246,10 @@ def content_free_features(comment, normalize=True):
     
     Features to compute:
         * Words and characters in post (2 features)
+        * Vocabulary metrics
+            * Yule's K (P(two randomly chosen nouns are the same)) (1 feature)
+            * Frequency of words appearing exactly 1 or 2 or 3 ... or 10 times
+              in the text (10 features)
         * Fraction of words of 1 to 20 characters (20 features)
         * Fraction of words in:
             * UPPERCASE
@@ -272,6 +276,25 @@ def content_free_features(comment, normalize=True):
     
     # Words in post
     features[u"words"] = len(words)
+    
+    # Words that appear 1 to 10 times each: frequencies thereof
+    # First, count all the words
+    word_counts = collections.Counter()
+    for word in words:
+        word_counts[word.lower()] += 1
+    
+    # Then, count number of unique words with any given count
+    words_with_count = collections.Counter()
+    for word, count in word_counts.iteritems():
+        words_with_count[count] += 1
+    
+    # Copy over features
+    for count in xrange(1, 11):
+        features[u"hapax:" + str(count)] = words_with_count[count]
+    
+        if normalize:    
+            # Normalize
+            features[u"hapax:" + str(count)] /= float(len(words))
     
     # Word lengths from 1 to 20 characters
     for word in words:
@@ -338,7 +361,7 @@ def content_free_features(comment, normalize=True):
             
     # Parsing edge features
     # Parse all the sentences
-    trees = stanford_parse(comment)
+    trees = list(stanford_parse(comment))
     
     # This holds counts all the (parent, child) tree edges
     edges = collections.Counter()
@@ -356,7 +379,23 @@ def content_free_features(comment, normalize=True):
         if normalize:
             features[key] /= float(len(edges))
     
+    # Now that we have the parsings, we can calculate Yule's K
+    # Get all the nouns
+    noun_counts = collections.Counter()
+    for tree in trees:
+        for (word, pos) in tree.pos():
+            if pos[0] == "N":
+                # Assume any tag starting with N is a noun (NN, NNP, etc.)
+                noun_counts[word.lower()] += 1
     
+    yules_k = 0
+    total_nouns = sum(noun_counts.itervalues())
+    # OR together all the events (we pick this noun twice)
+    for noun, count in noun_counts.iteritems():
+        yules_k += (count/float(total_nouns)) ** 2
+        
+    # Store Yule's K feature
+    features["yules-k"] = yules_k
     
     return features
 
