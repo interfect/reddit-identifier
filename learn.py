@@ -10,8 +10,6 @@ Program scaffold based on
 import argparse, sys, io, pickle, itertools, collections, random, re, tempfile
 import os, subprocess, random
 
-import pp
-
 import nltk
 import nltk.grammar
 import nltk.tree
@@ -23,10 +21,6 @@ from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
 
 import function_words
-
-# We also have a global PP job server
-job_server = pp.Server(secret="".join(
-    [random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for i in xrange(20)]))
 
 def generate_parser():
     """
@@ -207,7 +201,14 @@ def raw_content_free_features(comment):
     
     return content_free_features(comment, normalize=False)
     
-def content_free_features(comment, normalize=True):
+def noparse_content_free_features(comment):
+    """
+    Content-free features with no parsing and no normalization.
+    """
+    
+    return content_free_features(comment, normalize=False, parse=False)
+    
+def content_free_features(comment, normalize=True, parse=True):
     """
     Makes a feature/value dictionary from a Unicode comment, with content-free
     features.
@@ -231,6 +232,8 @@ def content_free_features(comment, normalize=True):
         * Parse tree edges by from, to as a fraction of total
         
     If normalize is false, all frequencies are raw counts instead.
+    
+    If parse is false, don't use any features requiring parsing.
     
     """
     # What feature dict are we making? (a dict of floats)
@@ -326,6 +329,10 @@ def content_free_features(comment, normalize=True):
         features[key] = count
         if normalize:
             features[key] /= float(len(words))
+     
+    # Anything after here nees parsing
+    if parse == False:
+        return features
             
     # Parsing edge features
     # Parse all the sentences
@@ -401,21 +408,11 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
             # Kind of defeats the point of unicode everywhere else...
             comment_string = unicode(comment[1].encode("ascii", "ignore"))
         
-            # Queue extracting comment features
-            # Uses lots of functions and modules
-            pp_jobs.append(job_server.submit(model_function, (comment_string,),
-            (content_free_features, stanford_parse, write_temp_text), 
-            ("re", "nltk", "nltk.tree", "itertools", "collections", "os",
-            "subprocess", "sys", "io", "tempfile", "function_words")))
-            
+            # Get the features
+            feature_dicts.append(model_function(comment_string))
+        
             # Store the label in the corresponding position in the labels list
             labels.append(user_number)
-            
-    # Wait for all the jobs to be done and put the resulting dicts in a list
-    for i, job in enumerate(pp_jobs):
-        feature_dicts.append(job())
-        print "Job {} done".format(i)
-        sys.stdout.flush()
             
     if vectorizer is None:
         # This is the DictVectorizer that we will use to vectorize the feature dicts
@@ -466,8 +463,7 @@ def main(args):
     
     # Feature models to try
     feature_models = {
-        "Content-Free": content_free_features,
-        "Content-Free (Raw)": raw_content_free_features,
+        "Content-Free (no parsing)": noparse_content_free_features,
         "Bag-of-Words": bag_of_words_features
     }
     
