@@ -631,7 +631,8 @@ def main(args):
                     classifier_name)   
                     
             sys.stdout.flush()
-            
+    
+    print "Done!"        
     return 0
     
 if __name__ == "__main__" :
