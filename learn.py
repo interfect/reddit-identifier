@@ -7,11 +7,10 @@ Program scaffold based on
 <http://users.soe.ucsc.edu/~karplus/bme205/f12/Scaffold.html>
 """
 
-import praw, argparse, sys, io, pickle, itertools, collections, random, re
+import argparse, sys, io, pickle, itertools, collections, random, re
 
 import nltk
 
-import numpy
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
