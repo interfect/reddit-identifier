@@ -11,7 +11,7 @@ import argparse, sys, io, pickle, itertools, collections, random, re, tempfile
 import os, subprocess, random
 
 import nltk
-import nltk.grammar
+
 import nltk.tree
 
 from sklearn.feature_extraction import DictVectorizer
@@ -21,6 +21,11 @@ from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
 
 import function_words
+
+import pp
+
+# We have a global PP job server
+job_server = None
 
 def generate_parser():
     """
@@ -46,6 +51,8 @@ def generate_parser():
         help="miniumum comments a user has to have to be used") 
     parser.add_argument("--top_predictions", type=int, default=5,
         help="number of best predictions to score")
+    parser.add_argument("--pp", action="store_true",
+        help="use Parallel Python for feature extraction")
     
         
     return parser
@@ -413,26 +420,67 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
     # How many comments have we processed?
     comments_done = 0
     
-    # Use the passed feature extraction function to get dicts from comments
-    for (user_number, (user_name, comments)) in enumerate(
-        user_index.iteritems()):
+    if job_server is None:
+        # Do comments in serial
+        # Use the passed feature extraction function to get dicts from comments
+        for (user_number, (user_name, comments)) in enumerate(
+            user_index.iteritems()):
         
-        for comment in comments:
-            # Strip out special characters
-            # Kind of defeats the point of unicode everywhere else...
-            comment_string = unicode(comment[1].encode("ascii", "ignore"))
         
-            # Get the features
-            feature_dicts.append(model_function(comment_string))
-        
-            # Store the label in the corresponding position in the labels list
-            labels.append(user_number)
+            for comment in comments:
+                # Strip out special characters
+                # Kind of defeats the point of unicode everywhere else...
+                comment_string = unicode(comment[1].encode("ascii", "ignore"))
             
+                # Get the features
+                feature_dicts.append(model_function(comment_string))
+            
+                # Store the label in the corresponding position in the labels
+                # list
+                labels.append(user_number)
+                
+                comments_done += 1
+                if comments_done % 100 == 0:
+                    sys.stdout.write(".")
+                    sys.stdout.flush()
+        sys.stdout.write("\n")
+            
+    else:
+        # Do comments in parallel
+        
+        # Jobs in flight
+        pp_jobs = []
+        
+        # Use the passed feature extraction function to get dicts from comments
+        for (user_number, (user_name, comments)) in enumerate(
+            user_index.iteritems()):
+            
+            for comment in comments:
+                # Strip out special characters
+                # Kind of defeats the point of unicode everywhere else...
+                comment_string = unicode(comment[1].encode("ascii", "ignore"))
+            
+                # Queue extracting comment features
+                # Uses lots of functions and modules
+                pp_jobs.append(job_server.submit(model_function, 
+                (comment_string,), 
+                (content_free_features,),
+                ("re", "nltk", "numpy", "itertools", "collections", "sys",
+                "function_words")))
+                
+                # Store the label in the corresponding position in the labels
+                # list
+                labels.append(user_number)
+                
+        # Wait for all the jobs to be done and put the resulting dicts in a list
+        comments_done = 0
+        for i, job in enumerate(pp_jobs):
+            feature_dicts.append(job())
             comments_done += 1
-            if comments_done % 10 == 0:
+            if comments_done % 100 == 0:
                 sys.stdout.write(".")
                 sys.stdout.flush()
-    sys.stdout.write("\n")
+        sys.stdout.write("\n")
             
     if vectorizer is None:
         # This is the DictVectorizer that we will use to vectorize the feature dicts
@@ -454,10 +502,23 @@ def main(args):
     "args" specifies the program arguments, with args[0] being the executable
     name. The return value should be used as the program's exit code.
     
+    If job_server is set, uses Parallel Python to speed things up.
+    DOES NOT WORK if trying to use both pp and the Stanford parser.
+    
     Based on http://streamhacker.com/2010/05/10/text-classification-sentiment-analysis-naive-bayes-classifier/
     """
     
+    # We may need to write to this
+    global job_server
+    
     options = parse_args(args) # This holds the nicely-parsed options object
+    
+    if options.pp:
+        # Make the job server
+        job_server = pp.Server(secret="".join(
+            [random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for i in xrange(20)]))
+
+
     
     # This holds a set of all comments. We use set in case we downloaded the 
     # same comment twice.
