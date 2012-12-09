@@ -7,14 +7,60 @@ Program scaffold based on
 <http://users.soe.ucsc.edu/~karplus/bme205/f12/Scaffold.html>
 """
 
-import argparse, sys, io, pickle, itertools, collections, random, re
+import argparse, sys, io, pickle, itertools, collections, random, re, tempfile
+import os, subprocess
 
 import nltk
+import nltk.grammar
+from nltk.tree import Tree
 
 from sklearn.feature_extraction import DictVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import SVC
+
+# We keep our list of function words in a global
+# Function words from Appendix 3 of Narayanan et al. 2012
+function_words=set([
+"aboard", "about", "above", "absent", "according", "accordingly",  "across",
+"after", "against", "ahead", "albeit", "all", "along", "alongside", "although",
+"am", "amid", "amidst", "among", "amongst", "amount", "an", "and", "another",
+"anti",  "any", "anybody", "anyone", "anything", "are", "around", "as",
+"aside", "astraddle",  "astride", "at", "away", "bar", "barring", "be",
+"because", "been", "before", "behind",  "being", "below", "beneath", "beside",
+"besides", "better", "between", "beyond", "bit",  "both", "but", "by", "can",
+"certain", "circa", "close", "concerning", "consequently",  "considering",
+"could", "couple", "dare", "deal", "despite", "down", "due", "during",  "each",
+"eight", "eighth", "either", "enough", "every", "everybody", "everyone",
+"everything", "except", "excepting", "excluding", "failing", "few", "fewer",
+" fifth",  " first", " five", "following", "for", "four", "fourth", "from",
+"front", "given", "good",  "great", "had", "half", "have", "he", "heaps",
+"hence", "her", "hers", "herself", "him",  "himself", "his", "however", "i",
+"if", "in", "including", "inside", "instead", "into", "is", "it",  "its",
+"itself", "keeping", "lack", "less", "like", "little", "loads", "lots",
+"majority", "many",  "masses", "may", "me", "might", "mine", "minority",
+"minus", "more", "most", "much",  "must", "my", "myself", "near", "need",
+"neither", "nevertheless", "next", "nine",  "ninth", "no", "nobody", "none",
+"nor", "nothing", "notwithstanding", "number",  "numbers", "of", "off", "on",
+"once", "one", "onto", "opposite", "or", "other", "ought",  "our", "ours",
+"ourselves", "out", "outside", "over", "part", "past", "pending", "per",
+"pertaining", "place", "plenty", "plethora", "plus", "quantities", "quantity",
+"quarter",  "regarding", "remainder", "respecting", "rest", "round", "save",
+"saving", "second",  "seven", "seventh", "several", "shall", "she", "should",
+"similar", "since", "six", "sixth",  "so", "some", "somebody", "someone",
+"something", "spite", "such", "ten", "tenth",  "than", "thanks", "that", "the",
+"their", "theirs", "them", "themselves", "then", "thence",  "therefore",
+"these", "they", "third", "this", "those", "though", "three", "through",
+"throughout", "thru", "thus", "till", "time", "to", "tons", "top", "toward",
+"towards",  "two", "under", "underneath", "unless", "unlike", "until", "unto",
+"up", "upon", "us",  "used", "various", "versus", "via", "view", "wanting",
+"was", "we", "were", "what",  "whatever", "when", "whenever", "where",
+"whereas", "wherever", "whether",  "which", "whichever", "while", "whilst",
+"who", "whoever", "whole", "whom",  "whomever", "whose", "will", "with",
+"within", "without", "would", "yet", "you",  "your", "yours", "yourself",
+"yourselves"
+])
+
 
 def generate_parser():
     """
@@ -33,9 +79,9 @@ def generate_parser():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     
     # Now add all the options to it.
-    parser.add_argument("--in", dest="inFile", type=argparse.FileType('r'), 
+    parser.add_argument("--in", dest="in file", type=argparse. fileType('r'), 
         default=sys.stdin, 
-        help="serialized comment input file (default: stdin)")
+        help="serialized comment input  file (default: stdin)")
     parser.add_argument("--min_user_comments", type=int, default=100,
         help="miniumum comments a user has to have to be used") 
     
@@ -45,7 +91,7 @@ def generate_parser():
 def parse_args(args):
     """
     Takes in the command-line arguments list (args), and returns a nice argparse
-    result with fields for all the options.
+    result with  fields for all the options.
     
     """
     
@@ -59,6 +105,67 @@ def parse_args(args):
     
     # Invoke the parser
     return parser.parse_args(args)
+
+def write_temp_text(text):
+    """
+    Write the given string to a temporary file.
+    Returns the filename of the temporary file.
+    """
+    
+    (handle, filename) = tempfile.mkstemp(suffix=".txt")
+    
+    # Convert handle (an int) to a proper stream
+    stream = io.open(handle, "w") 
+    stream.write(text)
+    stream.close()
+    
+    return filename
+
+def stanford_parse(comment):
+    """
+    Given a string of multiple sentences, yiled NLTK trees for their
+    parsings. Creates these trees using the Stanford parser in ./stanford.
+    
+    See http://www.cs.ucf.edu/courses/cap5636/fall2011/nltk.pdf
+    
+    """
+    
+    # Write the comment and get the filename
+    comment_file = write_temp_text(comment)
+    
+    # Call the parser
+    
+    command_line = ["java", "-mx150m", "-cp", "\"stanford/*:\"", 
+        "edu.stanford.nlp.parser.lexparser.LexicalizedParser", "-outputFormat", 
+        "penn", "edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz", 
+        comment_file]
+    stanford = subprocess.Popen(" ".join(command_line), stdout=subprocess.PIPE, 
+        shell=True) 
+    
+    # Read each tree and yield it
+    # This holds all the lines part of this parsing
+    current_parsing = []
+    
+    for line in stanford.stdout:
+        if line.rstrip() == "":
+            # A blank separator line
+            # The s-expression is done, so parse it (ugh) and yield it
+            yield Tree.parse(" ".join(current_parsing))
+            
+            # New parsing
+            current_parsing = []
+        else:
+            # This line is more of this parsing
+            current_parsing.append(line.rstrip())
+    # The final parsing has a blank line after it
+    
+    # That's all the data (hopefully)
+    if stanford.wait() != 0:
+        raise Exception("Stanford broke!")
+        
+    os.remove(comment_file)
+    
+    
     
 def read_comments(stream):
     """
@@ -110,7 +217,7 @@ def split_user_index(user_index):
         to_shuffle = list(comments)
         random.shuffle(to_shuffle)
         
-        # Training set gets the first half
+        # Training set gets the  first half
         training[user] = to_shuffle[0:len(to_shuffle)/2]
         
         # Test set gets the second half
@@ -148,6 +255,8 @@ def content_free_features(comment, normalize=True):
             * aNyThInG ElSe
         * Fraction of letters (ignoring case)
         * Fraction of all other characters by type
+        * Fraction of words that are each function word
+        * Parse tree edges by from, to as a fraction of total
         
     If normalize is false, all frequencies are raw counts instead.
     
@@ -177,7 +286,7 @@ def content_free_features(comment, normalize=True):
             features[u"word-length:" + str(length)] /= float(len(words))
         
     # Word capitalization counts. This regex matches camelcase (or capitalized,
-    # but we check that separately): first letter is capital, then some
+    # but we check that separately):  first letter is capital, then some
     # lowercase, and then some capital letters each followed by some lowercase
     # ones
     camel_regex = re.compile(r"([A-Z][a-z]+)+")
@@ -209,10 +318,45 @@ def content_free_features(comment, normalize=True):
         character_counts[u"char:" + character.lower()] += 1
         
     # Normalize and add in
-    for key in character_counts.iterkeys():
-        features[key] = character_counts[key] 
+    for key, count in character_counts.iteritems():
+        features[key] = count
         if normalize:
             features[key] /= float(len(comment))
+            
+    
+    # Function words
+    function_counts = collections.Counter()
+    for word in words:
+        word = word.lower()
+        if word in function_words:
+            function_counts["function:" + word] += 1
+    
+    for key, count in function_counts.iteritems():
+        features[key] = count
+        if normalize:
+            features[key] /= float(len(words))
+            
+    # Parsing edge features
+    # Parse all the sentences
+    trees = stanford_parse(comment)
+    
+    # This holds counts all the (parent, child) tree edges
+    edges = collections.Counter()
+    
+    for tree in trees:
+        for production in tree.productions():
+            for child in production.rhs():
+                if isinstance(child, nltk.grammar.Nonterminal):
+                    # Don't let words in
+                    edges[u"parse:" + str((production.lhs(), child))] += 1
+                    
+    # Copy over, normalizing if needed
+    for key, count in edges.iteritems():
+        features[key] = count
+        if normalize:
+            features[key] /= float(len(edges))
+    
+    
     
     return features
 
@@ -255,7 +399,7 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
         vectorizer = DictVectorizer()
         
         # Train on this data
-        vectorizer.fit(feature_dicts)
+        vectorizer. fit(feature_dicts)
             
     # Transform dicts into vectors
     feature_matrix = vectorizer.transform(feature_dicts)
@@ -337,7 +481,7 @@ def main(args):
             sys.stdout.flush()
             
             classifier = classifier_class()
-            classifier.fit(training_features, training_labels)
+            classifier. fit(training_features, training_labels)
             
             # Calculate the accuracy on the test set
             print "Computing accuracy..."
