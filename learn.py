@@ -566,10 +566,11 @@ def main(args):
     
     # Classifiers to try
     classifiers = {
-        "Naive Bayes": MultinomialNB,
-        "Nearest Neighbor": lambda: KNeighborsClassifier(n_neighbors=1),
+        "2-Nearest Neighbor": lambda: KNeighborsClassifier(n_neighbors=2),
+        #"Naive Bayes": MultinomialNB,
+        #"Nearest Neighbor": lambda: KNeighborsClassifier(n_neighbors=1),
         # non-linear SVC is one vs one by default, which is O(N^2) and too slow
-        "Linear SVM": LinearSVC
+        #"Linear SVM": LinearSVC
     }
     
     for model_name in feature_models.iterkeys():
