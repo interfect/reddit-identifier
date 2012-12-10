@@ -1,0 +1,96 @@
+\documentclass{article}
+
+\usepackage{url}
+\usepackage{cite}
+\usepackage{graphicx}
+
+
+\author{Adam Novak}
+\title{Identifying Internet Users by Writing Style: Progress Report}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+\end{abstract}
+
+\section{Introduction}
+With the exception of communities like Facebook, people generally use pseudonymous identities when interacting online. While providing some measure of identity protection, using a pseudonym is not the same as being anonymous. In addition to more traditional attacks on pseudonymity, such as convincing or coercing websites or service providers to disclose users' identities, it has recently been shown that author identification based on writing style (also known as ``stylometry'') could practically be used to identify blog authors on an Internet-wide scale \cite{narayanan2012feasibility}. This project attempts to apply current state-of-the-art methods of stylometry-based author identification to comments on the popular Internet discussion site Reddit.com \cite{reddit2012reddit}.
+
+Reddit is an internet community that thrives on pseudonymity. This is partly due to the culture of the site's community, and partly due to users' practice of creating and maintaining so-called ``throwaway'' accounts which they use to discuss highly controversial and embarrassing material. If it were possible to identify users reliably based on writing style in Reddit comments, it would be possible to connect ``throwaway'' accounts to users' primary accounts, which can be much more strongly died to their real-world identities (perhaps they use the same username for Reddit and Facebook, for example). Reliable stylometric identification of users would have a profound affect on the Reddit community, and on other similarly-structured online communities.
+
+However, paired sets of comments for ``main'' and ``throwaway'' acounts of the same user are currently unavailable outside a few specific cases \cite{chen2012unmasking, fitzpatrick2012man}. Additionally, while it might be socially beneficial to unmask certain ``throwaway'' accounts, in the general case it would be unethical to publish the specific results of a successful experiment into stylometrically pairing accounts, because it could potentially have negative effects on the owners of the accounts thus paired. Moreover, the user base of Reddit is so large that collecting enough data to have comments from both ``throwaway'' and ``main'' accounts for a substantial number of users, without knowing beforehand where to look, would be beyond the scale of this project.
+
+For these reasons, this project focuses on a different but related problem: matching individual Reddit comments back to the accounts that posted them. This task has no ethical dilemmas associated with it, and it is far easier to evaluate the success of a machine learning algorithm, because the data is labeled. It is also possible to run an informative experiment on a data set of any size. Algorithms that do well at this task could be expected to do relatively well on the throwaway-main matching task, while algorithms that do poorly on this task could be expected to do similarly poorly on that task.
+
+This project evaluated the accuracies of combinations of three different machine-learning classification algorithms (1-Nearest-Neighbor, Naive Bayes, and SVM) and three different feature extraction methods (Bag-Of-Words, Content-Free, and Content-Free with normalization) at the task of matching comments to authors. The data set used consisted of 70,744~author-labeled comments, representing 100~distinct users with at least 100~comments each. Comments were divided into training and test sets, and the most accurate combination of feature extraction method and learning algorithm was Content-Free features with the Naive Bayes algorithm, with an overall generalization accuracy of 9.5\% (versus an expected 1\% accuracy for uniform random guessing). 
+
+\section{Related Work}
+
+% Internet-scale Author Identification study
+% Explain blog task
+% They have a lot of data to analyze writing style. I have a little (149 chars per comment).
+
+\section{Methodology}
+
+\subsection{Data Set Characteristics}
+The original data set for the project project consisted of 237,889~comments from 514~users from the comments sections of Reddit posts from the ``front page'' ``subreddits'' of Reddit.com, downloaded in several batches over the course of two days in November 2012 \cite{reddit2012reddit}. However, due to run-time considerations, only a subset of this data could be analyzed: 70,744~comments from 100~users. The analyzed data set size (before filtering out users with fewer than 100~comments) is 14~megabytes, stored as Python tuples of (user name, comment, creation time) serialized using the \texttt{pickle} module. Comment text is in the form of Unicode strings with inline formatting, known as ``Reddit Makrkdown''. 
+
+\subsection{Data Collection}
+The data was downloaded using the Python Reddit API Wrapper (\texttt{praw}) Python module \cite{boe2012python}. For each post in the site's front-page post listing, the list of users who commented on that post was obtained. For each unique user, up to 1000 of their comments, starting with the most recent, were downloaded. This process was continued until a certain number of users with over a certain number of comments was reached, or until an error occurred and no more data could be obtained.
+
+\subsection{Feature Extraction}
+\paragraph{Bag of Words}
+\paragraph{Content-Free}
+Currently, bag-of-words and character-frequency feature extraction methods have been implemented to extract features from comment text. I plan to analyze bag-of-words feature extraction in my final report, because it is a very common feature extraction method, but I plan to extend the character-frequency feature extraction method to include other ``content-free'' feature types, such as frequency of words by length or by arrangement of capital letters, comment length, frequency of function words, and (ideally) frequency of part-of-speech relationships, as described in \cite{narayanan2012feasibility}. I may also add feature types related specifically to frequency of Reddit Markdown structures in comment formatting, since it seems likely that different users might use the available formatting options in different ways.
+
+\subsection{Classification Algorithms}
+Currently, I have implemented Naive Bayes classification based on the bag-of-words features, and Decision Tree classification based on the character frequency features. I would like to use each feature set with each classifier, but I have only written the code to use the classifiers built into the Natural Language Took Kit (NLTK), which is the natural language analysis module I am using \cite{nltk2012classify, perk2010text}. These classifiers are not particularly well-engineered: the Naive Bayes classifier only appears to support discrete feature values, while the decision tree classifier does not support features that have values for some examples but not for others (one might expect it to provide the Pythonic value of \texttt{None} for missing features). Because of the shortcomings of these classifiers, I intend to replace them with the classifiers offered by scikit-learn, for which NLTK offers a convenient adapter class, \texttt{SklearnClassifier} \cite{nltk2012classify}. I expect the scikit-learn classifiers to be better-engineered, and I also expect there to be a wider variety of classifiers available, since NLTK is primarily a text-processing package, and its machine-learning components are understandably limited. Moreover, I plan to remove the decision tree classifier altogether, since it has several hyperparameters that I have no good ideas for how to tune, and it does not seem intuitively like the right algorithm for the job. Furthermore, decision trees are not mentioned as being used in \cite{narayanan2012feasibility}.
+
+\subsection{Computational Resources}
+
+\subsection{Software Tools}
+\paragraph{Python 2.7}
+\paragraph{Natural Language Toolkit (NLTK)}
+\paragraph{scikit-learn}
+\paragraph{The Stanford Parser}
+\paragraph{Parallel Python}
+
+\section{Results}
+
+% Table
+
+% Words that say what's in the table
+
+\section{Conclusions}
+
+% It's hard to identify users by individual comments.
+% We do a lot better than chance
+% Bag of words is still surprisingly good
+    % Expect it to be bad because people write about different topics
+    % Reddit users may have preferred topics
+        % Restrict to comments in a single subreddit?
+% Internet-scale author identification is not feasible if it requires a whole bunch of software engineering.
+
+\section{Acknowledgements}
+
+\section{Bibliography}
+\bibliographystyle{plain}
+\bibliography{bibliography}
+
+\section{Methodology and Plans}
+T
+\section{Progress and Problems}
+
+So far, I have retrieved more than enough data to analyze (and am now limited by memory). I have also implemented the most basic feature extraction and classification (bag-of-words and Naive Bayes) that one would apply to this sort of classification problem. Initial results are encouraging: on my testing data set of 20 users, Naive Bayes with bag-of-words features identifies the correct user for a comment about 15\% of the time, versus an expected 5\% of the time when picking randomly among 20 equally likely classes. (I have not done a null model analysis to compare Naive Bayes classification to guessing randomly weighted according to the number of comments that each user has in the dataset.) The decision tree classifier on the character frequency feature set is much less accurate: not noticeably better than chance. I ascribe this deficiency to not having implemented most of the content-free features that have been shown to be useful for this type of problem, and potentially also to the algorithm possibly being a bad choice for the problem \cite{narayanan2012feasibility}.
+
+The biggest obstacle I have encountered so far is under-engineering (and under-documentation) of the NLTK built-in classifiers. They do not all appear to work on both categorical and numeric features, and some seem to require every feature to have a defined value for each example, which would make my initial design choice of having a pure function to map directly from a comment's contents to a set of features unworkable for all but the simplest feature extraction methods. Consequently, I am planning to switch exclusively to classifiers in the scikit.learn module, through NLTK's interface to that package. I expect these classifiers to be better-engineered and better-documented. Additionally, a much wider range of classifiers is available.
+
+The second-biggest problem I have encountered is getting my program running on the high-performance computing resources available to me. I have been trying to use CampusRocks, but its software configuration seems highly outdated (Python 2.4 is older than many elementary-school children) and frankly perverse. As I have said above, I have attempted to get in contact with the SoE support staff about my issues with CampusRocks, but I may be forced to run my analysis on the non-clustered SoE servers, where the software configuration is more reasonable.
+
+In conclusion, despite the problems I have encountered, I have already managed to demonstrate better-than-chance identification of pseudonymous Reddit users by stylometry, and I believe that I can still perform an experiment substantially identical to that which I have proposed.
+
+
+
+\end{document}

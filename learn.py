@@ -8,7 +8,7 @@ Program scaffold based on
 """
 
 import argparse, sys, io, pickle, itertools, collections, random, re, tempfile
-import os, subprocess, random
+import os, subprocess, random, numpy
 
 import nltk
 
@@ -538,8 +538,19 @@ def main(args):
         if len(comments) >= options.min_user_comments}
     print "{} users available for analysis".format(len(user_index.keys()))
     
+    # How many comments are left?
+    total_comments = sum(map(len, user_index.itervalues()))
+    print "{} comments available for analysis.".format(total_comments)
+    
     print "Uniform guess correctness rate: {}".format(
         1/float(len(user_index.keys())))
+    
+    # What's the average comment length?
+    total_characters = 0
+    for comment_list in user_index.itervalues():
+        for comment in comment_list:
+            total_characters += len(comment)
+    print "Mean comment length: {} characters.".format(total_characters / float(total_comments))
     
     sys.stdout.flush()
     
