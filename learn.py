@@ -16,7 +16,7 @@ import nltk
 import nltk.tree
 
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.naive_bayes import GaussianNB
+from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
@@ -581,7 +581,7 @@ def main(args):
     
     # Classifiers to try
     classifiers = {
-        "Naive Bayes": GaussianNB,
+        "Naive Bayes": MultinomialNB,
         "2-Nearest Neighbor": lambda: KNeighborsClassifier(n_neighbors=2),
         # non-linear SVC is one vs one by default, which is O(N^2) and too slow
         "Linear SVM": LinearSVC
@@ -627,13 +627,13 @@ def main(args):
             
             classifier = classifier_class()
             # Set probability=True to compute probability info
-            classifier.fit(training_features.todense(), training_labels)
+            classifier.fit(training_features, training_labels)
             
             # Calculate the accuracy on the test set
             print "Computing accuracy..."
             sys.stdout.flush()
             
-            accuracy = classifier.score(test_features.todense(), test_labels)
+            accuracy = classifier.score(test_features, test_labels)
             
             # Report the accuracy and most informative features
             print "{}/{} Accuracy: {}".format(classifier_name, model_name, 
@@ -643,7 +643,7 @@ def main(args):
                 # Our classifier supports this
                 # Get how often correct answer is in top 5
                 # This is a test points by classes matrix of log probs
-                predictions = classifier.predict_proba(test_features.todense())
+                predictions = classifier.predict_proba(test_features)
                 
                 # Count correct-within-top-n predictions
                 num_correct = 0
