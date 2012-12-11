@@ -16,7 +16,7 @@ import nltk
 import nltk.tree
 
 from sklearn.feature_extraction import DictVectorizer
-from sklearn.naive_bayes import MultinomialNB
+from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
@@ -136,7 +136,7 @@ def stanford_parse(comment):
     
     # That's all the data (hopefully)
     if stanford.wait() != 0:
-        raise Exception("Stanford broke!")
+        print "Stanford broke! Blithely continuing!"
         
     os.remove(comment_file)
     
@@ -581,7 +581,7 @@ def main(args):
     
     # Classifiers to try
     classifiers = {
-        "Naive Bayes": MultinomialNB,
+        "Naive Bayes": GaussianNB,
         "2-Nearest Neighbor": lambda: KNeighborsClassifier(n_neighbors=2),
         # non-linear SVC is one vs one by default, which is O(N^2) and too slow
         "Linear SVM": LinearSVC
@@ -604,9 +604,10 @@ def main(args):
         test_features, test_labels, vectorizer = make_sklearn_dataset(
             test_index, model_function, vectorizer=vectorizer)
         
-        # Convert sparse formats
-        training_features = training_features.tocsc()
-        test_features = test_features.tocsc()
+        # Normalize to 0 mean and unit variance
+        scaler = sklearn.preprocessing.StandardScaler()
+        training_features = scaler.fit_transform(training_features.todense())
+        test_features = scaler.transform(test_features.todense())
                 
         # Normalize by row (per sample)
         training_features = sklearn.preprocessing.normalize(training_features,
