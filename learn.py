@@ -302,10 +302,10 @@ def content_free_features(comment, normalize=True, parse=True):
     # S1 = number of unique words
     # S2 = sum of (number of words that occur n times * n^2) over all n
     yule_S1 = len(word_counts)
-    yule_S2 = sum(num_words * (frequency ** 2) 
-        for (frequency, num_words) in words_with_count.iteritems())
+    yule_S2 = sum([num_words * (frequency ** 2) 
+        for (frequency, num_words) in words_with_count.iteritems()])
     
-    features[u"yule-k"] = 10,000 * (yule_S2 - yule_S1) / float(yule_S1 ** 2)
+    features[u"yule-k"] = 10000 * (yule_S2 - yule_S1) / float(yule_S1 ** 2)
     
     # Word lengths from 1 to 20 characters
     for word in words:
