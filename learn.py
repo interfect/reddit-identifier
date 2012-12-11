@@ -119,7 +119,10 @@ def stanford_parse(comment):
     current_parsing = []
     
     for line in stanford.stdout:
-        if line.rstrip() == "":
+        if line == "":
+            # EOF
+            break
+        elif line.rstrip() == "":
             # A blank separator line
             # The s-expression is done, so parse it (ugh) and yield it
             yield nltk.tree.Tree.parse(" ".join(current_parsing))
