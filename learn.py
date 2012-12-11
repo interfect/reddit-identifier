@@ -604,10 +604,11 @@ def main(args):
         test_features, test_labels, vectorizer = make_sklearn_dataset(
             test_index, model_function, vectorizer=vectorizer)
         
-        # Normalize to 0 mean and unit variance
-        scaler = sklearn.preprocessing.StandardScaler()
-        training_features = scaler.fit_transform(training_features.todense())
-        test_features = scaler.transform(test_features.todense())
+        # Scale per feature to unit variance
+        # Can't move mean since it's sparse
+        scaler = sklearn.preprocessing.StandardScaler(with_mean=False)
+        training_features = scaler.fit_transform(training_features)
+        test_features = scaler.transform(test_features)
                 
         # Normalize by row (per sample)
         training_features = sklearn.preprocessing.normalize(training_features,
@@ -626,13 +627,13 @@ def main(args):
             
             classifier = classifier_class()
             # Set probability=True to compute probability info
-            classifier.fit(training_features, training_labels)
+            classifier.fit(training_features.todense(), training_labels)
             
             # Calculate the accuracy on the test set
             print "Computing accuracy..."
             sys.stdout.flush()
             
-            accuracy = classifier.score(test_features, test_labels)
+            accuracy = classifier.score(test_features.todense(), test_labels)
             
             # Report the accuracy and most informative features
             print "{}/{} Accuracy: {}".format(classifier_name, model_name, 
@@ -642,7 +643,7 @@ def main(args):
                 # Our classifier supports this
                 # Get how often correct answer is in top 5
                 # This is a test points by classes matrix of log probs
-                predictions = classifier.predict_proba(test_features)
+                predictions = classifier.predict_proba(test_features.todense())
                 
                 # Count correct-within-top-n predictions
                 num_correct = 0
