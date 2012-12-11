@@ -198,8 +198,15 @@ def bag_of_words_features(comment):
     """
     Makes a feature/value dictionary from a Unicode comment, under a 
     bag-of-words model.
-    """    
-    return {word: True for word in nltk.word_tokenize(comment)}
+    """   
+    
+    # BAG of words, not a SET of words
+    word_counts = collections.Counter()
+    
+    for word in nltk.word_tokenize(comment):
+        word_counts[word] += 1
+        
+    return word_counts
     
 def raw_content_free_features(comment):
     """
@@ -549,7 +556,7 @@ def main(args):
     total_characters = 0
     for comment_list in user_index.itervalues():
         for comment in comment_list:
-            total_characters += len(comment)
+            total_characters += len(comment[1])
     print "Mean comment length: {} characters.".format(total_characters / float(total_comments))
     
     sys.stdout.flush()
