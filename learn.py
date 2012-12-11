@@ -481,7 +481,6 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
                 
             # Parallel feature extraction
             for feature_dict in pool.map(model_function, comment_strings):
-                print feature_dict
                 feature_dicts.append(feature_dict)
                 
             
