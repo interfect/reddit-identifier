@@ -104,9 +104,10 @@ def stanford_parse(comment):
     
     # Call the parser
     
-    command_line = ["java", "-mx1G", "-cp", "\"stanford/*:\"", 
+    command_line = ["java", "-mx2G", "-cp", "\"stanford/*:\"", 
         "edu.stanford.nlp.parser.lexparser.LexicalizedParser", "-outputFormat", 
-        "penn", "edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz", 
+        "penn", "-maxLength", "40", 
+        "edu/stanford/nlp/models/lexparser/englishPCFG.ser.gz", 
         comment_file]
     stanford = subprocess.Popen(" ".join(command_line), stdout=subprocess.PIPE, 
         shell=True) 
