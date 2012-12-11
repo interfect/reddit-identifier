@@ -8,7 +8,7 @@ Program scaffold based on
 """
 
 import argparse, sys, io, pickle, itertools, collections, random, re, tempfile
-import os, subprocess, random, numpy
+import os, subprocess, random, numpy, multiprocessing
 
 import nltk
 
@@ -22,10 +22,8 @@ from sklearn.multiclass import OneVsRestClassifier
 
 import function_words
 
-import pp
-
-# We have a global PP job server
-job_server = None
+# Global thread pool
+pool = None
 
 def generate_parser():
     """
@@ -51,8 +49,10 @@ def generate_parser():
         help="miniumum comments a user has to have to be used") 
     parser.add_argument("--top_predictions", type=int, default=5,
         help="number of best predictions to score")
-    parser.add_argument("--pp", action="store_true",
-        help="use Parallel Python for feature extraction")
+    parser.add_argument("--multiprocessing", action="store_true",
+        help="use multiprocessing for feature extraction")
+    parser.add_argument("--parse", action="store_true",
+        help="enable parsing")
     
         
     return parser
@@ -222,6 +222,13 @@ def noparse_content_free_features(comment):
     
     return content_free_features(comment, normalize=True, parse=False)
     
+def unnormed_content_free_features(comment):
+    """
+    Content-free features with parsing and no normalization.
+    """
+    
+    return content_free_features(comment, normalize=False, parse=True)
+    
 def content_free_features(comment, normalize=True, parse=True):
     """
     Makes a feature/value dictionary from a Unicode comment, with content-free
@@ -230,7 +237,7 @@ def content_free_features(comment, normalize=True, parse=True):
     Features to compute:
         * Words and characters in post (2 features)
         * Vocabulary metrics
-            * Yule's K (P(two randomly chosen nouns are the same)) (1 feature)
+            * Yule's K (1 feature)
             * Frequency of words appearing exactly 1 or 2 or 3 ... or 10 times
               in the text (10 features)
         * Fraction of words of 1 to 20 characters (20 features)
@@ -267,27 +274,6 @@ def content_free_features(comment, normalize=True, parse=True):
         # None of the other features make sense, they can all be 0
         return features
     
-    # Yule's K
-    
-    # PoS tag everything
-    pos_tagged = nltk.pos_tag(words)
-    
-    # Get all the nouns
-    noun_counts = collections.Counter()
-    for (word, pos) in pos_tagged:
-        if pos[0] == "N":
-            # Assume any tag starting with N is a noun (NN, NNP, etc.)
-            noun_counts[word.lower()] += 1
-    
-    yules_k = 0
-    total_nouns = sum(noun_counts.itervalues())
-    # OR together all the events (we pick this noun twice)
-    for noun, count in noun_counts.iteritems():
-        yules_k += (count/float(total_nouns)) ** 2
-        
-    # Store Yule's K feature
-    features["yules-k"] = yules_k
-    
     # Words that appear 1 to 10 times each: frequencies thereof
     # First, count all the words
     word_counts = collections.Counter()
@@ -306,6 +292,20 @@ def content_free_features(comment, normalize=True, parse=True):
         if normalize:    
             # Normalize
             features[u"hapax:" + str(count)] /= float(len(words))
+            
+    # Yule's K
+    # Actually described at:
+    # http://swizec.com/blog/anything/swizec/2528
+    # Ignores stemming
+    
+    # K = 10,000 * (S2 - S1) / (S1 ^ 2)
+    # S1 = number of unique words
+    # S2 = sum of (number of words that occur n times * n^2) over all n
+    yule_S1 = len(word_counts)
+    yule_S2 = sum(num_words * (frequency ** 2) 
+        for (frequency, num_words) in words_with_count.iteritems())
+    
+    features[u"yule-k"] = 10,000 * (yule_S2 - yule_S1) / float(yule_S1 ** 2)
     
     # Word lengths from 1 to 20 characters
     for word in words:
@@ -395,6 +395,9 @@ def content_free_features(comment, normalize=True, parse=True):
         # Just use part-of-speech frequencies
         pos_counts = collections.Counter()
         
+        # PoS tag everything
+        pos_tagged = nltk.pos_tag(words)
+        
         for (word, pos) in pos_tagged:
             pos_counts[u"POS:" + pos] += 1
         
@@ -431,7 +434,7 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
     # How many comments have we processed?
     comments_done = 0
     
-    if job_server is None:
+    if pool is None:
         # Do comments in serial
         # Use the passed feature extraction function to get dicts from comments
         for (user_number, (user_name, comments)) in enumerate(
@@ -459,38 +462,30 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
     else:
         # Do comments in parallel
         
-        # Jobs in flight
-        pp_jobs = []
+        
         
         # Use the passed feature extraction function to get dicts from comments
         for (user_number, (user_name, comments)) in enumerate(
             user_index.iteritems()):
             
+            comment_strings = []
             for comment in comments:
                 # Strip out special characters
                 # Kind of defeats the point of unicode everywhere else...
-                comment_string = unicode(comment[1].encode("ascii", "ignore"))
-            
-                # Queue extracting comment features
-                # Uses lots of functions and modules
-                pp_jobs.append(job_server.submit(model_function, 
-                (comment_string,), 
-                (content_free_features,),
-                ("re", "nltk", "numpy", "itertools", "collections", "sys",
-                "function_words")))
+                comment_strings.append(unicode(comment[1].encode("ascii", 
+                    "ignore")))
                 
                 # Store the label in the corresponding position in the labels
                 # list
                 labels.append(user_number)
                 
-        # Wait for all the jobs to be done and put the resulting dicts in a list
-        comments_done = 0
-        for i, job in enumerate(pp_jobs):
-            feature_dicts.append(job())
-            comments_done += 1
-            if comments_done % 100 == 0:
-                sys.stdout.write(".")
-                sys.stdout.flush()
+            # Parallel feature extraction
+            feature_dicts += pool.map(model_function, comment_strings)
+            
+            # Done with this user
+            sys.stdout.write(".")
+            sys.stdout.flush()
+                
         sys.stdout.write("\n")
             
     if vectorizer is None:
@@ -520,14 +515,13 @@ def main(args):
     """
     
     # We may need to write to this
-    global job_server
+    global pool
     
     options = parse_args(args) # This holds the nicely-parsed options object
     
-    if options.pp:
-        # Make the job server
-        job_server = pp.Server(secret="".join(
-            [random.choice("ABCDEFGHIJKLMNOPQRSTUVWXYZ") for i in xrange(20)]))
+    if options.multiprocessing:
+        # Make the pool
+        pool = multiprocessing.Pool()
 
 
     
@@ -566,15 +560,22 @@ def main(args):
     
     # Feature models to try
     feature_models = {
-        "Content-Free (counts)": noparse_content_free_features,
-        "Content-Free (frequencies)": raw_content_free_features,
+        #"Content-Free (normalized)": noparse_content_free_features,
         "Bag-of-Words": bag_of_words_features
     }
+    
+    if options.parse:
+        # Do some parsing!
+        feature_models["Content-Free (parsing}"] = unnormed_content_free_features
+    else:
+        # Don't
+        feature_models["Content-Free (raw)"] = raw_content_free_features
+        
     
     # Classifiers to try
     classifiers = {
         "Naive Bayes": MultinomialNB,
-        "Nearest Neighbor": lambda: KNeighborsClassifier(n_neighbors=1),
+        "2-Nearest Neighbor": lambda: KNeighborsClassifier(n_neighbors=2),
         # non-linear SVC is one vs one by default, which is O(N^2) and too slow
         "Linear SVM": LinearSVC
     }
