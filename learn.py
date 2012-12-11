@@ -564,7 +564,7 @@ def main(args):
     # Feature models to try
     feature_models = {
         #"Content-Free (normalized)": noparse_content_free_features,
-        #"Bag-of-Words": bag_of_words_features
+        "Bag-of-Words": bag_of_words_features
     }
     
     if options.parse:
