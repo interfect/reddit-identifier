@@ -1,22 +1,25 @@
-\documentclass{article}
+\documentclass[12pt]{article}
 
 \usepackage{url}
 \usepackage{cite}
 \usepackage{graphicx}
+\usepackage{multirow}
+\usepackage{hhline}
 
 
 \author{Adam Novak}
-\title{Identifying Internet Users by Writing Style: Progress Report}
+\title{Identifying Internet Users by Writing Style}
 
 \begin{document}
 
 \maketitle
 
 \begin{abstract}
+An experiment was carried out to evaluate the author-identification results of Narayanan \textit{et al.} when extended the problem of re-identifying single author-labeled comments from the Internet discussion site Reddit.com \cite{narayanan2012feasibility, reddit2012reddit}. A data set of approximately 70,000~comments from 100~users was analyzed. Both bag-of-words and stylometric (or ``content-free'') methods of feature extraction were explored, in combination with the 2-Nearest-Neighbor, Naive Bayes, and SVM classification algorithms. Overall, the most accurate combination proved to be Naive Bayes and a bag-of-words feature extraction method, with an accuracy of 15.4\%, although this is hypothesized to be due to dependence between author and topic. With content-free features, SVM was found to be the best learning algorithm, in contrast to previous findings \cite{narayanan2012feasibility}, probably due to the small size of the data set used here. Furthermore, 2-Nearest-Neighbor was found to perform poorly when used with content-free features, again in contrast to previous findings \cite{narayanan2012feasibility}; the reason for this discrepancy is still unknown. Overall, de-pseudonymization of Reddit comments using stylometry-based methods was determined to be practical within sub-communities.
 \end{abstract}
 
 \section{Introduction}
-With the exception of communities like Facebook, people generally use pseudonymous identities when interacting online. While providing some measure of identity protection, using a pseudonym is not the same as being anonymous. In addition to more traditional attacks on pseudonymity, such as convincing or coercing websites or service providers to disclose users' identities, it has recently been shown that author identification based on writing style (also known as ``stylometry'') could practically be used to identify blog authors on an Internet-wide scale \cite{narayanan2012feasibility}. This project attempts to apply current state-of-the-art methods of stylometry-based author identification to comments on the popular Internet discussion site Reddit.com \cite{reddit2012reddit}.
+Outside of ``walled gardens'' like Facebook, people generally use pseudonymous identities when interacting online. While providing some measure of identity protection, using a pseudonym is not the same as being anonymous. In addition to more traditional attacks on pseudonymity, such as convincing or coercing websites or service providers to disclose users' identities, it has recently been shown that author identification based on writing style (also known as ``stylometry'') could practically be used to identify blog authors on an Internet-wide scale \cite{narayanan2012feasibility}. This project attempts to apply current state-of-the-art methods of stylometry-based author identification to comments on the popular Internet discussion site Reddit.com \cite{reddit2012reddit}.
 
 Reddit is an internet community that thrives on pseudonymity. This is partly due to the culture of the site's community, and partly due to users' practice of creating and maintaining so-called ``throwaway'' accounts which they use to discuss highly controversial and embarrassing material. (All content on the site is posted in user-created, user-moderated ``subreddits'' over which Reddit, Inc. exercises close to the minimum amount of oversight required by law.) If it were possible to identify users reliably based on writing style in Reddit comments, it would be possible to connect ``throwaway'' accounts to users' primary accounts, which can be much more strongly died to their real-world identities (perhaps through a shared username). Reliable stylometric de-pseudonymization of users would have a profound affect on the Reddit community, and on other similarly-structured online communities.
 
@@ -112,19 +115,30 @@ To compute syntactic-structure-based features, Narayanan \textit{et al.} used th
 
 \section{Results}
 
-The results of the experiment are presented in Table \ref{tbl:results}. As can be seen there, bag-of-words feature extraction was found to produce higher classification accuracies than content-free feature extraction (up to 15.4\% correct, and having the correct user in the top 5 30.0\% of the time with a Naive Bayes classifier). Furthermore, the accuracy of the SVM classifier was found to be the highest for the content-free feature extraction method, and that of 2-Nearest-Neighbor the lowest. Both of these results are in conflict with Narayanan \textit{et al.} (although that study did not directly examine bag-of-words feature extraction, dismissing it \textit{a priori} for theoretical reasons) \cite{narayanan2012feasibility}.
-
 \begin{table}
-\begin{tabular}{l|c c c c c c}
-Feature Extraction & 2-NN Accuracy & 2-NN Top 5 & NB Accuracy & NB Top 5 & SVM Accuracy & SVM Top 5 \\
-\hline Bag-of-Words & 4.6\% & 11.7\% & 15.4\% & 30.0\% & 14.9\% & -- \\
-\hline Content-Free & 4.2\% & 11.0\% & 7.2\% & 20.9\% & 10.9\% & -- \\
+\begin{center}
+\begin{tabular}{|l|c|c|c|}
+\hline \multirow{2}{*}{Learning Algorithm} & \multirow{2}{*}{Metric} & \multicolumn{2}{|c|}{Feature Extraction Method} \\
+\hhline{~~--}
+ & & Bag-of-Words & Content-Free \\
+\hline \multirow{2}{*}{2-NN} & Accuracy & 4.6\% & 4.2\% \\
+\hhline{~---}
+ & Top 5 & 11.7\% & 11.0\% \\
+\hline \multirow{2}{*}{NB} & Accuracy & 15.4\% & 7.2\% \\
+\hhline{~---}
+ & Top 5 & 30.0\% & 20.9\% \\
+\hline \multirow{2}{*}{SVM} & Accuracy & 14.9\% & 10.9\% \\
+\hhline{~---}
+ & Top 5 & -- & -- \\
+\hline
 \end{tabular}
+\end{center}
 \caption{\label{tbl:results}
-The accuracies of all combinations of feature selection methods and learning algorithms. Accuracy is the portion of comments in the test set correctly paired with the user who posted them. Where made possible by the off-the-shelf classifiers used, the portion of comments for which the correct user was in the top 5 most likely users, as estimated by the classifier, is also presented. Note how bag-of-words features outperform content-free features for every classifier tested. Also note how SVM is the most accurate classifier for both feature extraction methods.
+The accuracies of all combinations of feature selection methods (bag-of-words and content-free) and learning algorithms (2-Nearest-Neighbor, Naive Bayes, and SVM). Accuracy is the portion of comments in the test set correctly paired with the user who posted them. Where made possible by the off-the-shelf classifiers used, the portion of comments for which the correct user was in the top 5 most likely users, as estimated by the classifier, is also presented. Note how bag-of-words features outperform content-free features for every classifier tested. Also note how SVM is the most accurate classifier for both feature extraction methods.
 }
 \end{table}
 
+The results of the experiment are presented in Table \ref{tbl:results}. As can be seen there, bag-of-words feature extraction was found to produce higher classification accuracies than content-free feature extraction (up to 15.4\% correct, and having the correct user in the top 5 30.0\% of the time with a Naive Bayes classifier). Furthermore, the accuracy of the SVM classifier was found to be the highest for the content-free feature extraction method, and that of 2-Nearest-Neighbor the lowest. Both of these results are in conflict with Narayanan \textit{et al.} (although that study did not directly examine bag-of-words feature extraction, dismissing it \textit{a priori} for theoretical reasons) \cite{narayanan2012feasibility}.
 
 \section{Conclusions}
 
@@ -150,7 +164,7 @@ The author would like to thank the developers of all of the Python modules used 
 Although in some cases the author would not like to do so, the author is obligated to thank the following Reddit users for their comment data, without which this project would not have been possible: skadferlyfe, DancingWithKafka, MrsJetson, skaterape, MakeEmSayUhhh, CarolineTurpentine, emohipster, postsinsensitively, PSIStarstormOmega, Dieck\_Pwns\_All, itsasillyplace, Jinxy\_Minx, ShootTheMoon, savant9, thestairway67, parkman, Jormungandrobot, rfp\_drew, stringdom, crackjoy, Thomsenite, Uglies\_Bumped, Zydrunas, kaiden333, AudibleKnight, asshatnowhere, Pryer, Boomanchu, Shardwing, radbrad7, Dark\_Matrix, smellyorange, miseryisnotdead, real\_nice\_guy, Doctor\_Loggins, Imtheone457, TheCollective01, MananWho, Karnas, buttabeens, lethargicwalrus, longcoolwoman, DoorLord, Anonymous3542, dubyat, mateogg, livefreeordont, n8k99, You\_Better\_Smile, JCJen7, NiceSuit, 1Down, ocarinaofrhyme, mocodity, NothingtodohereOGW, TThor, dingofarmer2004, SanchoDeLaRuse, Sodfarm, Lettuce\_Get\_Weird, admdelta, guardiandevil, maruraba, 4nz, PixelMagic, ricktencity, sapienshane, tq92, TehGogglesDoNothing, VidCrafter, MortFlesh, Maester\_May, FlipStik, MrCheeze, wilu, Engineer3227, Keyserchief, ELEMENTALITYNES, nuxenolith, ISwearThisIsOriginal, tesla3327, PerilPhoSho, xarlev, CountGrasshopper, titan413, lesleh, NigWantsKFC, barnesandnobles, Sleepy\_One, tbandit, captgrizzlybear, SockofBadKarma, FUCKED-WITH-A-KNIFE, Loumen, Biased\_Dumbledore, Rphenom, letspopbottles, Viper007Bond, SmartViking, and FadedPoste. In many of your cases, the author hopes to be able to de-pseudonymize you soon, so that the author may report your highly inappropriate choice of pseudonym to your parents or guardians.
 
 \section{Bibliography}
-\bibliographystyle{plain}
+\bibliographystyle{abbrv}
 \bibliography{bibliography}
 
 \end{document}
