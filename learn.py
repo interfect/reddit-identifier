@@ -10,6 +10,8 @@ Program scaffold based on
 import argparse, sys, io, pickle, itertools, collections, random, re, tempfile
 import os, subprocess, random, numpy, multiprocessing
 
+import scipy.sparse
+
 import nltk
 
 import nltk.tree
@@ -19,6 +21,7 @@ from sklearn.naive_bayes import MultinomialNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.svm import LinearSVC
 from sklearn.multiclass import OneVsRestClassifier
+import sklearn.preprocessing
 
 import function_words
 
@@ -503,7 +506,20 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
     feature_matrix = vectorizer.transform(feature_dicts)
     
     return feature_matrix, labels, vectorizer
-            
+  
+def mean_nonzero(items):
+    """
+    Compute the mean of all nonzero items.
+    """
+    
+    total = 0
+    count = 0
+    for item in items:
+        if item != 0:
+            total += item
+            count += 1
+    
+    return total / float(count)   
     
 def main(args):
     """
@@ -569,7 +585,7 @@ def main(args):
     
     if options.parse:
         # Do some parsing!
-        feature_models["Content-Free (parsing}"] = unnormed_content_free_features
+        feature_models["Content-Free (parsing)"] = unnormed_content_free_features
     else:
         # Don't
         feature_models["Content-Free (raw)"] = raw_content_free_features
@@ -600,6 +616,48 @@ def main(args):
         test_features, test_labels, vectorizer = make_sklearn_dataset(
             test_index, model_function, vectorizer=vectorizer)
         
+        # Convert sparse formats
+        training_features = training_features.tocsc()
+        test_features = test_features.tocsc()
+        
+        # Normalize feature-mean-nonzero by column
+        # Apply along axis gives consecutive things along that axis
+        # Axis 0 is row is sample
+        # So one call happens for each column (feature)
+        print "Calculating normalization factors..."
+        sys.stdout.flush()
+        feature_nonzero_means = []
+        for col in xrange(training_features.shape[1]):
+            col_data = training_features[:, col].data
+            feature_nonzero_means.append(mean_nonzero(col_data))
+        
+        # Numpy-ify
+        feature_nonzero_multipliers = scipy.sparse.csc_matrix(
+            1.0 / numpy.array(feature_nonzero_means, ndmin=2).transpose())
+        
+        # Norm data by column's nonzero-mean
+        print "Normalizing training data..."
+        sys.stdout.flush()
+
+        # Already maps over columns
+        #training_features = training_features * feature_nonzero_multipliers
+        
+        print "Normalizing test data..."
+        sys.stdout.flush()
+        
+        # Already maps over columns
+        #test_features = test_features * feature_nonzero_multipliers
+        
+        # Convert sparse formats
+        training_features = training_features.tocsr()
+        test_features = test_features.tocsr()
+        
+        # Normalize by row (per sample)
+        training_features = sklearn.preprocessing.normalize(training_features,
+            copy=False)
+        test_features = sklearn.preprocessing.normalize(test_features,
+            copy=False)
+            
         for classifier_name in classifiers.iterkeys():
 
             # Get the class of classifier to use
