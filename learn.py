@@ -480,7 +480,10 @@ def make_sklearn_dataset(user_index, model_function, vectorizer=None):
                 labels.append(user_number)
                 
             # Parallel feature extraction
-            feature_dicts += pool.map(model_function, comment_strings)
+            for feature_dict in pool.map(model_function, comment_strings):
+                print feature_dict
+                feature_dicts.append(feature_dict)
+                
             
             # Done with this user
             sys.stdout.write(".")
@@ -561,7 +564,7 @@ def main(args):
     # Feature models to try
     feature_models = {
         #"Content-Free (normalized)": noparse_content_free_features,
-        "Bag-of-Words": bag_of_words_features
+        #"Bag-of-Words": bag_of_words_features
     }
     
     if options.parse:
